@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 
 /**
  * A custom React hook that tracks the current mouse position.
@@ -23,26 +23,43 @@ interface MousePosition {
   y: number;
 }
 
-function useMousePosition(): MousePosition {
-  const [mousePosition, setMousePosition] = useState<MousePosition>({
-    x: 0,
-    y: 0,
-  });
+const createMousePositionStore = () => {
+  let listeners: (() => void)[] = [];
+  let currentPosition: MousePosition = { x: 0, y: 0 };
 
-  useEffect(() => {
-    function handleMouseMove(event: MouseEvent) {
-      setMousePosition({
-        x: event.clientX,
-        y: event.clientY,
-      });
-    }
-
-    window.addEventListener("mousemove", handleMouseMove);
-
+  const subscribe = (listener: () => void) => {
+    listeners.push(listener);
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
+      listeners = listeners.filter((l) => l !== listener);
     };
-  }, []);
+  };
+
+  const emitChange = () => {
+    listeners.forEach((listener) => listener());
+  };
+
+  const handleMouseMove = (event: MouseEvent) => {
+    currentPosition = { x: event.clientX, y: event.clientY };
+    emitChange();
+  };
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("mousemove", handleMouseMove);
+  }
+
+  return {
+    subscribe,
+    getSnapshot: () => currentPosition,
+  };
+};
+
+const mousePositionStore = createMousePositionStore();
+
+function useMousePosition(): MousePosition {
+  const mousePosition = useSyncExternalStore(
+    mousePositionStore.subscribe,
+    mousePositionStore.getSnapshot
+  );
 
   return mousePosition;
 }

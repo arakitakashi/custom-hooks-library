@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 
 /**
  * A custom hook that manages state in local storage.
@@ -24,31 +24,39 @@ function useLocalStorageState<T>(
     serialize?: (value: T) => string;
     deserialize?: (value: string) => T;
   } = {}
-): [T, React.Dispatch<React.SetStateAction<T>>] {
-  const [state, setState] = useState<T>(() => {
-    const valueInLocalStorage = window.localStorage.getItem(key);
-    if (valueInLocalStorage) {
+): [T, (value: T | ((prev: T) => T)) => void] {
+  // Function to retrieve data from the store
+  const getStorageValue = (): T => {
+    const storedValue = localStorage.getItem(key);
+    if (storedValue) {
       try {
-        return deserialize(valueInLocalStorage);
+        return deserialize(storedValue);
       } catch (error) {
-        window.localStorage.removeItem(key);
+        console.error(`Error deserializing value for key "${key}":`, error);
       }
     }
     return typeof defaultValue === "function"
       ? (defaultValue as () => T)()
       : defaultValue;
-  });
+  };
 
-  const prevKeyRef = useRef<string>(key);
+  // Function to subscribe to the store
+  const subscribe = (callback: () => void) => {
+    window.addEventListener("storage", callback);
+    return () => window.removeEventListener("storage", callback);
+  };
 
-  useEffect(() => {
-    const prevKey = prevKeyRef.current;
-    if (prevKey !== key) {
-      window.localStorage.removeItem(prevKey);
-    }
-    prevKeyRef.current = key;
-    window.localStorage.setItem(key, serialize(state));
-  }, [key, state, serialize]);
+  // Use useSyncExternalStore to synchronize with the store
+  const value = useSyncExternalStore(subscribe, getStorageValue);
 
-  return [state, setState];
+  // Function to set the value
+  const setValue = (newValue: T | ((prev: T) => T)) => {
+    const valueToStore =
+      newValue instanceof Function ? newValue(value) : newValue;
+    localStorage.setItem(key, serialize(valueToStore));
+    // Manually dispatch storage event
+    window.dispatchEvent(new Event("storage"));
+  };
+
+  return [value, setValue];
 }
